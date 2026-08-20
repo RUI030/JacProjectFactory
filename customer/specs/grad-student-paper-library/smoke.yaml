@@ -1,0 +1,30 @@
+scenarios:
+  - name: Save a paper
+    steps:
+      - endpoint: save_paper
+        input:
+          title: "Attention is All You Need"
+          author: "Vaswani et al."
+          summary: "Introduces the Transformer architecture."
+          tags: ["transformer", "nlp"]
+          source_url: "https://arxiv.org/abs/1706.03762"
+        assertions:
+          - expect_success: true
+          - expect_output_contains:
+              title: "Attention is All You Need"
+              summary: "Introduces the Transformer architecture."
+  - name: List all papers
+    steps:
+      - endpoint: list_papers
+        input: {}
+        assertions:
+          - expect_success: true
+          - expect_output_length: 1
+  - name: Search by tag
+    steps:
+      - endpoint: search_papers_by_tag
+        input:
+          tag: "transformer"
+        assertions:
+          - expect_success: true
+          - expect_output_length: 1

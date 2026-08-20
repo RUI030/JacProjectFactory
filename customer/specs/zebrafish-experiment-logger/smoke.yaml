@@ -1,0 +1,32 @@
+scenarios:
+  - name: Create a new run
+    steps:
+      - endpoint: list_tanks
+        input: {}
+        assertions:
+          - expect_success: true
+      - endpoint: create_experiment_run
+        input:
+          tank_id: "tank_1"
+          treatment_id: "treat_1"
+          embryo_stage_id: "stage_1"
+          notes: "Initial run"
+        assertions:
+          - expect_success: true
+  - name: Record a feeding event
+    steps:
+      - endpoint: record_timestamp
+        input:
+          run_id: "run_123"
+          event_type: "feeding"
+        assertions:
+          - expect_success: true
+  - name: Search for runs
+    steps:
+      - endpoint: search_runs
+        input:
+          query: "Initial"
+        assertions:
+          - expect_success: true
+          - expect_output_contains:
+              notes: "Initial run"

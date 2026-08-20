@@ -1,0 +1,5 @@
+{
+  "persona": "grad-student-paper-library",
+  "complexity_ceiling": "tiny",
+  "model": "openai/default"
+}

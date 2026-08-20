@@ -1,0 +1,27 @@
+[
+  {
+    "id": "grad-student-paper-library",
+    "title": "Grad student building a paper library",
+    "background": "A first-year PhD student in computational biology, drowning in papers. Reads 5-10 papers a week across their subfield and adjacent ones. Cares about being able to find things later ('that paper about X...'), tagging by topic, and jotting down what a paper actually said in their own words. Tolerates a minimal UI. Comfortable with technical tools."
+  },
+  {
+    "id": "wet-lab-scientist",
+    "title": "Wet-lab scientist logging experiments",
+    "background": "A postdoc running behavioral experiments on zebrafish. Needs to log each experiment run: which tank, which treatment, which stage of embryo, timestamps for feeding and imaging. Keeps meticulous paper notebooks now; wants the same discipline in a digital tool that survives lab-computer reboots. Not a programmer."
+  },
+  {
+    "id": "freelance-developer",
+    "title": "Freelance developer tracking clients",
+    "background": "A solo contractor juggling three or four clients at a time. Wants to track billable hours per project, invoice status, and small notes ('client X wants Y by Wednesday'). Has tried Notion and hated the friction. Wants something dead simple, keyboard-driven, that they own."
+  },
+  {
+    "id": "home-gardener",
+    "title": "Home gardener planning beds",
+    "background": "Retired schoolteacher with a 40-square-meter backyard vegetable garden. Wants to track what got planted where and when, next-water and next-fertilize reminders per bed, and how each variety yielded last season. Not technical. Values clarity over cleverness."
+  },
+  {
+    "id": "day-trader-hobbyist",
+    "title": "Hobbyist trader with a personal journal",
+    "background": "Software engineer by day, trades personal money on the side. Wants a personal dashboard for their watchlist, notes on why they're watching each ticker, and their own trade journal (entry price, thesis, exit, lessons). Absolutely does not trust hosted services with this data - self-hosted only."
+  }
+]

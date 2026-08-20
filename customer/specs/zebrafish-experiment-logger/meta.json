@@ -1,0 +1,5 @@
+{
+  "persona": "wet-lab-scientist",
+  "complexity_ceiling": "tiny",
+  "model": "openai/default"
+}
