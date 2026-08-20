@@ -1,31 +1,23 @@
 # Pipeline
 
-The v1 build pipeline generates backend-only Jac projects. Scope, motivation, and the top-level decisions live in [`BACKGROUND.md`](BACKGROUND.md); this doc describes the shape.
+Scope and top-level decisions live in [`BACKGROUND.md`](BACKGROUND.md); this doc describes the shape. Load-bearing choices and their why live in [`DECISIONS.md`](DECISIONS.md).
 
-The pipeline runs in two stages, both implemented in Jac using OSP:
+Two stages, each a Jac walker on its own OSP graph:
 
-- **`customer/`** — a walker that drafts requirement specs and writes them into a versioned `customer/specs/` bank. (The "Customer" places an order at the factory.)
-- **`factory/`** — a walker that reads one spec and produces one candidate repo.
+- **`customer/`** — drafts specs into `customer/specs/<name>/`.
+- **`factory/`** — reads one spec, produces one candidate repo.
 
-They stay separate because specs and builds have different models, different cache lifetimes, and different failure modes. A bad spec is unrecoverable; a bad build is retryable. Regenerating the spec bank must not touch the build pipeline.
-
-Repair is a **third**, independent pipeline. It takes a `repaircenter/` sample and drives a different model with a different budget to promote it to `refurbished/` or push it to `archived/`. It does not share Factory's FSM — its shape will live in `REPAIR.md` when we design it.
+A third **Repair** pipeline exists too — takes `repaircenter/` samples, drives a different model with its own budget, and promotes to `refurbished/` or pushes to `archived/`. Own doc when we design it.
 
 ## Input and output
 
-Factory's contract, end to end:
-
-- **Input:** a spec folder — `customer/specs/<name>/` containing `requirement.md` and `smoke.yaml` (Customer's output; Factory never mutates these).
-- **Destination:** a working filesystem path, `factory/output/.build/<name>/`, that Factory owns for the duration of one run.
-- **Output:** one of `factory/output/{marketplace,repaircenter,archived}/<name>/`, each shaped `{repo/, spec/, trajectory.jsonl, meta.json}` — where `repo/` is a real, runnable Jac project that additionally contains a `README.md` and a `pipeline.md` (the project's own design doc, see Design below) at its root, alongside the generated Jac source.
-
-Every node below states its own input/output against that same destination path, so it's always clear what a node reads and what it's expected to leave behind.
+- **In:** `customer/specs/<name>/{requirement.md, smoke.yaml}` (Customer's output — never mutated).
+- **Working dir:** `factory/.work/<name>/` (outside `output/`, hidden, temporary — moved into a bucket at end of run).
+- **Out:** `factory/output/{marketplace,repaircenter,archived}/<name>/`. The directory *is* the runnable Jac project — `main.jac`, `jac.toml`, `README.md`, `pipeline.md`, etc. sit at the top so `cd`ing in feels like a normal repo. Metadata (`trajectory.jsonl`, `meta.json`) lives in a hidden `.factory/` subdir. Customer's original spec is **not** copied — the shared `<name>` is the link back to `customer/specs/<name>/`, which lets a project's journey stay traceable across buckets without content duplication.
 
 ## The build graph
 
-The orchestrator is a Jac graph. One project generation is one walker traversing it, carrying the run's state (spec id, per-node session ids, per-gate counters, global counter, trajectory — see [`ANTIPATTERNS.md`](ANTIPATTERNS.md) for why this lives on the walker and not on nodes). Running N repos in parallel is N walkers on the same graph.
-
-Each gated LLM phase (Model, Endpoints, Tests, Smoke) has its **own** Diagnose node — not one shared `Fix` node. A shared node would have to carry "which phase do I resume into" as hidden state; a dedicated `Diagnose: X` node just has one edge back to `X`, so the retry is a plain graph cycle instead of a dispatch table. There's no shared "Route" node either: each `Diagnose` node writes straight to its own (fixed) bucket on cap-out — see the diagram.
+One walker per run, all state on the walker (see [`ANTIPATTERNS.md`](ANTIPATTERNS.md)). N parallel builds = N walkers on the same graph.
 
 ```mermaid
 flowchart TD
@@ -72,20 +64,22 @@ flowchart TD
     class MP,AR1,RC1 bucket
 ```
 
-Blue = LLM phase, green = deterministic, yellow = gate, red = diagnose-and-retry, purple = terminal bucket. `archived`/`repaircenter`/`marketplace` are shared terminal nodes (multiple edges converging on one is fine — there's no decision happening there, just several static, hardcoded destinations landing on the same outcome). `DiagnoseModel` is the only diagnose node that can cap out with zero gates ever passed, so it's the only one wired to `archived`; the other three can only be reached after an earlier gate already passed, so they're only ever wired to `repaircenter`.
+Blue = LLM phase, green = deterministic, yellow = gate, red = diagnose-and-retry, purple = terminal bucket.
 
-### Design: turning a framework-agnostic spec into a Jac plan
+Each gated phase owns its own gate node — currently two `jac check` nodes, one `jac test`, one HTTP-shape check. They stay as separate nodes on purpose: a v2 phase can bring its own gate command without touching a shared dispatch, and each phase's fail edge points at exactly one Diagnose node.
 
-Customer's `requirement.md` deliberately has no Jac vocabulary in it (see "Specs are framework-agnostic" in `DECISIONS.md`) — no walker-vs-function choice, no concrete node/edge names. Something has to make those calls before code gets written, and burying that reasoning inside the Model phase's prompt makes it invisible and unrepeatable. Design is that phase, made explicit:
+### Design: framework-agnostic spec → Jac plan
 
-- **Input:** the spec folder (`requirement.md`, `smoke.yaml`).
-- **Output**, all written into the destination fp:
-  - `pipeline.md` — a Mermaid diagram plus short prose: the entities and their node/edge shape, and for each capability, its concrete Jac form (walker or function) and why.
-  - `requirement.md` (Factory's own copy, jac-annotated) — the same spec, with the framework-agnostic capability descriptions now carrying the concrete Jac decisions from `pipeline.md`. Customer's original in `customer/specs/<name>/` is never touched.
-  - `README.md` (draft) — a project-level description, later copied into the generated repo as-is.
-- **Gate:** deterministic — `pipeline.md` parses as valid Markdown containing at least one fenced ` ```mermaid ` block, and the jac-annotated `requirement.md` lists a Jac form for every capability named in the original. No LLM repair loop here: if Design's output doesn't meet that bar, Diagnose: Model's first attempt gets the failure as extra context (Model is the first phase that actually depends on Design's output being sound), rather than adding a fifth Diagnose node for a phase with no code to check yet.
+Customer's spec has no Jac vocabulary. Design is where walker-vs-function and node/edge naming get decided, explicitly, before any code is written.
 
-Every later LLM phase (Model, Endpoints, Tests) reads the **jac-annotated** `requirement.md` from the destination fp, not Customer's original — that's the one place the framework-agnostic-to-Jac translation happens, and every phase downstream of Design sees it already resolved.
+- **Reads:** the spec folder.
+- **Writes into destination fp:**
+  - `pipeline.md` — mermaid + prose: entities, node/edge shape, each capability's Jac form and why.
+  - `requirement.md` — jac-annotated copy of Customer's spec.
+  - `README.md` — project description (later shipped in the repo as-is).
+- **Gate:** deterministic — a fenced ` ```mermaid ` block exists, and every capability from Customer's original has a Jac form in the annotated copy. On fail, the failure becomes extra context for `DiagnoseModel`'s first attempt; there's no dedicated diagnose node for Design since there's no code to check yet.
+
+Every later phase reads Design's `requirement.md`, never Customer's original.
 
 ## Nodes at a glance
 
@@ -101,23 +95,18 @@ Every later LLM phase (Model, Endpoints, Tests) reads the **jac-annotated** `req
 | Diagnose: Tests | yes | failing `jac test` output | repaired repo | — |
 | Smoke | no | running repo + `smoke.yaml` | pass/fail per assertion | HTTP response shape |
 | Diagnose: Smoke | yes | failing assertions | repaired repo | — |
-| Harvest | no | repo + trajectory + spec | `factory/output/<bucket>/<name>/{repo/ (+README.md, pipeline.md), spec/, trajectory.jsonl, meta.json}` | — |
+| Harvest | no | scaffolded repo + trajectory | `factory/output/<bucket>/<name>/` — the whole Jac project at top level, with `.factory/{trajectory.jsonl, meta.json}` alongside | — |
 
 ## Diagnose-loop rules
 
-- **Per-gate counter, starts at 0 when the phase is entered, lives on the walker.**
-- On gate failure: the phase node visits its own `Diagnose: X` node (a type-filtered edge, e.g. `visit [here --> (`?DiagnoseModel)];` — never an unfiltered `visit [here -->]`, since a phase node has two outgoing edges: forward-on-pass and diagnose-on-fail).
-- `Diagnose: X` checks both caps (see below) before doing anything else. Under cap: increments the counter, records the failing output as a trajectory entry, drives one repair round (`claude -p --resume <session>`), then visits back to `X` to re-run the gate. Over cap: writes to its bucket (`DiagnoseModel` → `archived`, always; the other three → `repaircenter`, always — see the diagram) and disengages. No routing decision at runtime, just a fixed bucket per node.
-- The model's session is resumed within a phase (`claude -p --session-id <id>` on the first attempt, `--resume <id>` on every retry) so it remembers prior attempts. A new phase starts a fresh session.
-- **Cap per gate: 5.** Exceeding it routes the sample to a non-marketplace bucket (see below); it is not thrown away.
-- **Global cap per run: 20 attempts total**, tracked on the walker across every stage. Catches slow-progress pathological runs that keep barely surviving each gate.
-- Advancing to a new phase resets that phase's counter to 0 (it's a fresh local count each time `Diagnose: X` starts being relevant — never shared across phases).
+- Per-gate counter lives on the walker; resets to 0 when a phase is entered.
+- Fresh `claude -p --session-id <id>` on the first attempt; `--resume <id>` on every retry so the model remembers prior attempts. New phase = new session.
+- **Cap per gate: 5. Global cap per run: 20.** Exceeding either → Diagnose writes to its bucket (`DiagnoseModel` → archived, all others → repaircenter) and disengages.
+- Phase-to-Diagnose visits use a type-filtered edge (e.g. `visit [here --> (`?DiagnoseModel)];`) since phase nodes have two outgoing edges — forward-on-pass, diagnose-on-fail.
 
 ## Trajectory
 
-Every phase and every diagnose attempt appends to the walker's `trajectory` list. At end of run it's written as `trajectory.jsonl` alongside the repo — an ordered log of what happened, what failed, and how it was repaired.
-
-Record shape:
+Every gate run appends one record to the walker's `trajectory`, persisted incrementally to `.work/<name>/.factory/trajectory.jsonl` (so if a run crashes mid-pipeline, the partial trajectory survives). Harvest / cap-out just moves the file into the bucket along with the rest of the tree.
 
 ```
 {
@@ -125,67 +114,50 @@ Record shape:
   "attempt": 2,
   "outcome": "pass" | "fail" | "capped",
   "gate": "jac check",
-  "diagnostics": [...],
-  "duration_ms": 12345
+  "llm_ms": 78000,
+  "gate_ms": 350,
+  "duration_ms": 78350,
+  "diagnostics": "..."
 }
 ```
 
-Two uses:
-
-1. **Analytics** — which phase fails most, which cap gets hit, which diagnostic codes dominate. This is how the pipeline gets tuned.
-2. **Training signal** — the (state, diagnostic, fix) triples are useful for teaching self-correction.
+Two uses: analytics (which phase fails most, which diagnostic codes dominate) and training signal ((state, diagnostic, fix) triples for teaching self-correction).
 
 ## Skill injection
 
-Skills come from `jac guide --export ./skills/` at pipeline-init time. The pipeline does not bundle its own copy — the CLI is the source of truth and stays aligned.
+`factory/skills/` is populated once via `jac guide --export ./skills/`; the CLI is the source of truth. Each phase's prompt has four parts:
 
-Every LLM phase's prompt has this shape:
+1. **Stable prefix** — system prompt + `jac-core-cheatsheet` + `jac-project-kinds` + repo tour. Byte-identical across every phase and every attempt within a phase.
+2. **Preloaded phase skills** (per node table). Always includes `jac-debugging` — even on the first attempt — so the byte prefix stays identical when a repair resumes.
+3. **Phase task** — from walker state, or on repair the failing gate's output.
+4. **On-demand** — everything else in `./skills/<name>/SKILL.md`, read by the model's own file tool mid-phase when it needs it.
 
-1. **Stable prefix** (identical bytes across every phase and every attempt within a phase): system prompt (which tells the model where `./skills/` lives and to read from it when unsure of syntax or patterns), `jac-core-cheatsheet`, `jac-project-kinds`, repo tour.
-2. **Preloaded phase skills** (from the node table above) — the ones the model *definitely* needs, injected so it doesn't pay a file-read round-trip for them. `jac-debugging` is preloaded **unconditionally** as part of a gated phase's own skill set (not added dynamically only once a repair is needed) — that keeps the prefix through part 2 byte-identical across a phase's first attempt and every later retry, which is what makes `llama-server`'s KV-cache reuse actually hold within a phase, not just across phases.
-3. **Phase task** (composed from the walker's state — for a retry, this is the diagnose round's repair instruction, built from the gate's failing output).
-4. **On-demand skills** — everything else in `./skills/`, not injected. The model reads them mid-phase via its file tool if it decides it needs them.
-
-Prefix stability is what makes `llama-server`'s KV-cache reuse work across phases; the preload list per phase is fixed, so the prefix through part 2 is byte-stable within a phase. On-demand reads happen after that boundary and don't invalidate the cached prefix.
+Parts 1–2 are what `llama-server`'s KV-cache reuses across calls; part 4 happens after that boundary and doesn't invalidate the cache.
 
 ## Headless agent invocation
 
-Factory drives Claude Code non-interactively (`claude -p`), which raises two operational questions worth answering explicitly:
-
-**What stops it from hanging on a permission prompt?** Interactively, Claude Code pauses for approval before risky tool calls (editing files, running shell commands) — exactly the actions every LLM phase needs to take. A headless call that blocks on a prompt no one can answer would hang the pipeline forever. Factory invokes `claude -p` with `--dangerously-skip-permissions`. This is safe here specifically because every phase operates inside a repo Factory itself scaffolded moments earlier into a throwaway destination path — there's nothing pre-existing to damage, no network access is needed beyond the local Unsloth server, and nothing the model does inside that repo is trusted anyway until `jac check`/`jac test`/the smoke assertions say so afterward. (The CLI's own help text recommends this flag "only for sandboxes with no internet access" — a freshly scaffolded, locally-gated build directory is exactly that.)
-
-**How does the orchestrator know it's time to advance?** Never by asking the model. `claude -p` returning just means the agent stopped taking turns — necessary, but Factory never treats "the agent said it's done" as sufficient. Every phase node, after `claude -p` exits, runs its own gate command (`jac check`, `jac test`, or the smoke curl sequence) itself and reads its exit code. Advancing to the next node depends only on that exit code, never on the model's claim. This is "Gates are ground truth" applied literally to the model/orchestrator boundary, not just to phase transitions.
+Factory invokes `claude -p --dangerously-skip-permissions` (safe here — throwaway repo, gated afterward; full rationale in `DECISIONS.md`). It never treats `claude -p` returning as "phase done" — Factory re-runs the gate itself and reads its exit code.
 
 ## Output buckets
 
-Nothing is thrown away. The routing rule is drawn in the graph above — `Harvest` → marketplace, `DiagnoseModel` capping → archived, any other `Diagnose` node capping → repaircenter. Each bucket, shape `{repo/, spec/, trajectory.jsonl, meta.json}`:
+Every bucket entry is the runnable Jac project directly at `<name>/`, with `.factory/{trajectory.jsonl, meta.json}` alongside. Customer's spec is *not* copied — the shared `<name>` links back to `customer/specs/<name>/`.
 
 - **`marketplace/`** — clean SFT data.
-- **`repaircenter/`** — awaiting repair; still an "almost got it" RL signal.
-- **`refurbished/`** — was `repaircenter/`, Repair-pipeline got it green. Tagged in `meta.json` so it stays distinguishable from marketplace-originals.
+- **`repaircenter/`** — passed ≥1 gate then capped; awaiting Repair (RL "almost got it" signal in the meantime).
+- **`refurbished/`** — a Repair pass got everything green. Tagged in `meta.json` so it stays distinguishable from marketplace originals.
 - **`archived/`** — terminal, never retried.
 
-Factory writes only `marketplace/`/`repaircenter/`/`archived/`. Repair writes only `refurbished/`/`archived/`. A project only ever moves buckets via a deliberate Repair action.
+Factory writes `marketplace/`/`repaircenter/`/`archived/` only; Repair writes `refurbished/`/`archived/`. Cross-bucket moves happen only through a deliberate Repair action.
 
 ## Model server
 
-One local model, one server, many clients.
+Unsloth Studio, persistent, `localhost:8888`. OpenAI + Anthropic compatible; token in `Authorization: Bearer $UNSLOTH_STUDIO_AUTH_TOKEN`. Concurrent requests fine; no restart between callers.
 
-Unsloth Studio is run persistently and exposes an OpenAI + Anthropic compatible API on `localhost:8888` (`/v1/chat/completions`, `/v1/messages`, `/v1/responses`, `/v1/models`), authed via `Authorization: Bearer $UNSLOTH_STUDIO_AUTH_TOKEN`. Every client the pipeline uses points at that same server:
-
-- **Coding agent (Claude Code):** Factory runs `unsloth start claude --no-launch` once at startup, which prints the exact env vars (`ANTHROPIC_BASE_URL`, `ANTHROPIC_AUTH_TOKEN`, `ANTHROPIC_MODEL`, plus a few `CLAUDE_CODE_*` tuning vars) needed to point plain `claude -p` calls at the running server. Factory captures those once and reuses them as the environment for every subsequent `claude -p` subprocess call it makes — it does not re-invoke `unsloth start claude` per phase.
-- **byllm calls from Jac orchestrator code (Customer):** provider config points at `http://localhost:8888/v1` with the same token.
-- **Ad-hoc HTTP:** anything else (analytics, curl, tests) hits the same endpoint.
-
-No session collision, no restart between callers — the server handles concurrent requests. The Studio process is the pipeline's model dependency; when it's up, everything routes.
+- **`claude -p`:** Factory captures env from `unsloth start claude --no-launch` at startup (`ANTHROPIC_BASE_URL`, `ANTHROPIC_AUTH_TOKEN`, `ANTHROPIC_MODEL`, a few `CLAUDE_CODE_*` tuning vars) and reuses it for every subsequent subprocess call.
+- **byllm (Customer):** points at `http://localhost:8888/v1` with the same token.
+- **Ad-hoc HTTP:** same endpoint.
 
 ## v1 guardrails
 
-Constraints the phase system prompt states up front and the gates enforce:
-
-- **No JSX, no npm imports, no React.** `--kind service` has no client target; any JSX/npm import will fail placement at `jac check`. When it does slip through, the Diagnose node reaches for `jac-codespaces` on-demand to help the model understand the diagnostic and rewrite as pure Jac.
-- **Prefer pure Jac over Python interop.** Python is available via `jac-python-interop` but should be reached for only when Jac stdlib genuinely can't do the thing. Uniformity of output matters for training-data quality.
-
-## What byllm is *not* used for
-
-byllm is not an FSM controller. It does not decide which phase runs next, when a gate has passed, or which bucket a sample lands in. The model reading `./skills/<name>/SKILL.md` mid-phase via its file tool is *not* byllm-driven — it's the model using its own file-read tool inside a phase whose control flow is still owned by the FSM. If we ever want deterministic per-run *preload* selection, the hook is a `skills_hint: [...]` field in the spec, decided once by Customer.
+- **No JSX, no npm imports, no React.** `--kind service` has no client target; slippage fails `jac check`, and Diagnose reads `jac-codespaces` on-demand to rewrite as pure Jac.
+- **Prefer pure Jac over Python interop.** Reach for `jac-python-interop` only when Jac stdlib genuinely can't do it. Uniformity matters for training data.
