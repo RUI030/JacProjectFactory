@@ -1,0 +1,3 @@
+I'm tired of wrestling with bloated project management tools just to keep track of my basic freelance work. I need a super-lean way to log my billable hours for my few clients and see at a glance what's been paid and what's still outstanding. I want to be able to jump in, hit a shortcut to start a timer, and jot down a quick note like "Client X wants the API fix by Wednesday" without clicking through a dozen menus or dealing with complex layouts.
+
+The main thing is speed; I want a tool that stays out of my way so I can get back to coding. Since I’m a solo dev, I don't need fancy charts or team permissions—I just want a private, keyboard-friendly space where I can see my project statuses at a glance and own my own data.

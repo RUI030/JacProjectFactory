@@ -36,7 +36,7 @@ node EmitNode {}
 
 # ---------- LLM functions ----------
 
-def draft_wish(persona_title: str, persona_background: str, complexity: str) -> str by llm(temperature=0.8);
+def draft_wish(persona_title: str, persona_background: str, complexity: str) -> str by llm(temperature=0.8, enable_thinking=False);
 
 sem draft_wish = "Write a first-person, natural-language description of the web app this persona wants. A paragraph or two, in their own voice. No technical schema, no endpoint names. Just what they want to be able to do, and why. Match the given complexity ceiling as a soft upper bound.";
 sem draft_wish.persona_title = "A short label naming the persona.";
@@ -54,7 +54,7 @@ sem DraftedSpec.project_name = "Short kebab-case slug for the project (e.g. grad
 sem DraftedSpec.requirement_md = "Full content of requirement.md. YAML front matter with keys: name, description, persona, complexity, uses_byllm, non_goals. Then Markdown body with three sections: Data model (entities and relationships), Endpoints (one block each), Test scenarios. Endpoint blocks have: name (verb-based capability like create_paper or search_by_tag), purpose, inputs (typed fields), output (shape), behavior (one paragraph), acceptance criteria. NO HTTP methods, NO URL paths, NO REST vocabulary - the spec is framework-agnostic (do not write things like 'POST /papers' or 'GET /papers/search?q='; endpoints are named capabilities only, e.g. 'create_paper'). Every field type MUST be written as one of these exact lowercase nouns: string, integer, number, boolean, timestamp, date, id, object, or 'list of <noun>' for collections (e.g. 'list of string', 'list of tag'). These are the ONLY valid type words. NEVER write a programming-language type name - not 'str', 'int', 'String', 'Integer', 'Boolean', 'Bool', 'Float', 'UUID', 'DateTime', 'List[...]', or any capitalized/language-specific type. Example - WRONG: 'id: UUID', 'title: String', 'tags: List[String]'. RIGHT: 'id: id', 'title: string', 'tags: list of string'.";
 sem DraftedSpec.smoke_yaml = "Full content of smoke.yaml. A top-level `scenarios:` list. Each scenario has a name and a `steps:` list. Each step has: endpoint (name matching one from requirement.md), input (an object), and one or more assertions from this fixed vocabulary: expect_success (bool), expect_error (bool), expect_output (any value the payload equals), expect_output_contains (object of fields to match), expect_output_length (int for list-payload length). NO method or path fields.";
 
-def draft_spec(persona_id: str, wish_text: str, complexity: str) -> DraftedSpec by llm(temperature=0.3);
+def draft_spec(persona_id: str, wish_text: str, complexity: str) -> DraftedSpec by llm(temperature=0.3, enable_thinking=False);
 
 sem draft_spec = "Turn a persona's wish into a framework-agnostic spec: what entities exist, what capabilities the app exposes, and how to verify them. Describe capabilities by name and purpose, not by HTTP method or path - Factory decides how each capability is exposed. Complexity is a soft ceiling; simpler is fine when the wish is naturally minimal.";
 sem draft_spec.persona_id = "The persona seed id, for provenance in the front-matter.";

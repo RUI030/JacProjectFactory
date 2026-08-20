@@ -1,0 +1,5 @@
+{
+  "persona": "freelance-developer",
+  "complexity_ceiling": "tiny",
+  "model": "openai/default"
+}

@@ -23,5 +23,35 @@
     "id": "day-trader-hobbyist",
     "title": "Hobbyist trader with a personal journal",
     "background": "Software engineer by day, trades personal money on the side. Wants a personal dashboard for their watchlist, notes on why they're watching each ticker, and their own trade journal (entry price, thesis, exit, lessons). Absolutely does not trust hosted services with this data - self-hosted only."
+  },
+  {
+    "id": "high-school-teacher",
+    "title": "High school teacher tracking a small class",
+    "background": "Teaches two sections of 25 students each. Wants to log assignments, due dates, and grades per student, and quickly see who's missing work. Comfortable with spreadsheets, wary of anything that takes more than a few minutes to learn. School laptop, no admin rights to install much."
+  },
+  {
+    "id": "community-garden-organizer",
+    "title": "Community garden and mutual-aid coordinator",
+    "background": "Volunteer coordinator for a neighborhood community garden and a small mutual-aid food-sharing effort. Needs to track plot assignments, volunteer sign-ups for watering shifts, and incoming/outgoing food donations. Not a programmer, uses a shared tablet at the garden shed. Values something simple enough that other volunteers can use it too."
+  },
+  {
+    "id": "home-cook-recipe-archivist",
+    "title": "Home cook building a personal recipe box",
+    "background": "Cooks almost every night and is tired of losing recipes across screenshots, bookmarks, and a battered notebook. Wants to save recipes with ingredients, steps, and their own tweaks ('half the salt, add cumin'), tag them by cuisine or occasion, and pull up something quick on a phone propped against the toaster. Casual technical comfort - uses apps fine, doesn't want to configure anything."
+  },
+  {
+    "id": "youth-soccer-coach",
+    "title": "Volunteer coach tracking a youth soccer team",
+    "background": "Coaches a U10 recreational soccer team on weekends. Wants to track the roster, who showed up each practice, and which drills the team has worked on this season, so practice plans don't repeat by accident. Not technical, checks things from a phone in a parking lot between games. Wants something fast, not a full sports-management platform."
+  },
+  {
+    "id": "indie-musician",
+    "title": "Indie musician managing gigs and merch",
+    "background": "Solo musician who books their own shows. Wants to track upcoming gig offers (venue, date, pay, contact), past setlists so they don't repeat a set at the same venue, and a running count of merch inventory (shirts, vinyl) sold at shows. Moderately technical - fine with apps and spreadsheets, no interest in learning a real database tool."
+  },
+  {
+    "id": "bakery-owner",
+    "title": "Small bakery owner tracking custom orders",
+    "background": "Runs a one-person home bakery taking custom cake and pastry orders. Wants to track incoming orders (customer, item, date needed, price, deposit paid), and keep a running list of ingredient stock so they know when to restock flour or specialty items before a big order. Not technical at all - currently uses a paper order pad and wants something just as fast to use, on a phone."
   }
 ]

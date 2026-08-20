@@ -1,0 +1,33 @@
+scenarios:
+  - name: Create and list project
+    steps:
+      - endpoint: create_project
+        input:
+          name: "API Refactor"
+          client_name: "Acme Corp"
+        assertions:
+          - expect_success: true
+      - endpoint: list_projects
+        input: {}
+        assertions:
+          - expect_success: true
+          - expect_output_length: 1
+  - name: Start and stop timer
+    steps:
+      - endpoint: start_timer
+        input:
+          project_id: "proj-1"
+        assertions:
+          - expect_success: true
+      - endpoint: stop_timer
+        input:
+          entry_id: "entry-1"
+        assertions:
+          - expect_success: true
+  - name: Mark entry as paid
+    steps:
+      - endpoint: mark_as_paid
+        input:
+          entry_id: "entry-1"
+        assertions:
+          - expect_success: true
