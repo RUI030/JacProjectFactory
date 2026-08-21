@@ -17,9 +17,9 @@ glob WORK_ROOT: str = str(Path(FACTORY_DIR) / ".work");
 glob OUTPUT_DIR: str = str(Path(FACTORY_DIR) / "output");
 glob SPECS_DIR: str = str(Path(FACTORY_DIR).parent / "customer" / "specs");
 
-glob MODEL_SKILLS: list[str] = ["jac-node-edge-patterns", "jac-has-fields", "jac-types", "jac-debugging"];
-glob ENDPOINTS_SKILLS: list[str] = ["jac-walker-patterns", "jac-sv-endpoints", "jac-sv-persistence", "jac-debugging"];
-glob TESTS_SKILLS: list[str] = ["jac-testing", "jac-debugging"];
+glob MODEL_SKILLS: list[str] = ["jac-node-edge-patterns"];
+glob ENDPOINTS_SKILLS: list[str] = ["jac-sv-endpoints"];
+glob TESTS_SKILLS: list[str] = ["jac-testing"];
 
 glob GATE_CAP: int = 5;
 glob GLOBAL_CAP: int = 20;
@@ -93,6 +93,7 @@ def claude_headless(
         "claude", "-p", prompt,
         "--bare",
         "--dangerously-skip-permissions",
+        "--exclude-dynamic-system-prompt-sections",
         "--output-format", "text",
     ];
     if resume {
@@ -122,15 +123,20 @@ def read_skill(name: str) -> str {
     return "";
 }
 
-def skills_menu -> str {
-    # One-line description per skill (parsed from each SKILL.md's YAML front
-    # matter `description:` field). Gives the model a menu without needing to ls.
+def skills_menu(exclude: list[str]) -> str {
+    # One-line skill menu (name + first sentence of description) so the model
+    # knows what else is available for on-demand reads. Skills already in the
+    # preloaded set aren't listed — pointless to advertise what's already above.
+    excluded = set(exclude);
     lines: list[str] = [];
     skills_root = Path(SKILLS_DIR);
     if not skills_root.exists() {
         return "";
     }
     for entry in sorted(skills_root.iterdir()) {
+        if entry.name in excluded {
+            continue;
+        }
         skill_md = entry / "SKILL.md";
         if not skill_md.exists() {
             continue;
@@ -139,7 +145,11 @@ def skills_menu -> str {
         for line in skill_md.read_text().splitlines()[:20] {
             stripped = line.strip();
             if stripped.startswith("description:") {
-                desc = stripped[len("description:"):].strip();
+                full = stripped[len("description:"):].strip();
+                # First sentence only — the topic. Rest is usage hints
+                # (Load when..., Pair with...) that a coding model doesn't need.
+                first_stop = full.find(". ");
+                desc = full[:first_stop] if first_stop > 0 else full;
                 break;
             }
         }
@@ -151,9 +161,12 @@ def skills_menu -> str {
 def compose_prompt(phase_skills: list[str], task: str) -> str {
     # Skills dir sits at factory/skills/; sub-agents run from factory/.work/<name>/,
     # so the relative path is ../../skills/<name>/SKILL.md.
-    menu = skills_menu();
+    preloaded = ["jac-core-cheatsheet", "jac-project-kinds"] + phase_skills;
+    menu = skills_menu(preloaded);
     parts: list[str] = [
-        "You are working inside a scaffolded Jac project. Additional Jac skill files (SKILL.md each) live at `../../skills/<name>/SKILL.md` relative to your working directory — read them via your file tools when you need deeper detail than what's already loaded below. Available skills:\n\n",
+        "You are working inside a scaffolded Jac project. Skills already loaded into this prompt: ",
+        ", ".join(preloaded),
+        ". More Jac skill files live at `../../skills/<name>/SKILL.md` — read them via your file tools when you need deeper detail than what's loaded:\n\n",
         menu,
         "\n\n--- jac-core-cheatsheet ---\n",
         read_skill("jac-core-cheatsheet"),
@@ -330,12 +343,14 @@ def model_task_first -> str {
     return """You are Factory's Model phase. Read `pipeline.md` at the root of this repo — that's the detailed Jac plan Design produced. Your job is to translate its `## Data model` section into actual `node` and `edge` declarations. This is transcription, not design; every field type and default is already decided.
 
 Deliverables:
-- Create `model.jac` with each `node` and `edge` archetype from pipeline.md's Data model section, exactly matching its field lists, types, and defaults.
+- Create `model.jac` (at the repo root, NOT in a subdirectory) with each `node` and `edge` archetype from pipeline.md's Data model section, exactly matching its field lists, types, and defaults.
 - Import `datetime` if any field uses it: `import from datetime { datetime }`.
 - Do NOT add fields not in the Data model section. Do NOT add walkers, endpoints, or `with entry` blocks — those come next phase.
 - Leave `main.jac` alone; the scaffold stub gets replaced by the Endpoints phase.
 
-Gate: `jac check .` — everything must type-check. If a diagnostic is confusing, read `../../skills/jac-debugging/SKILL.md`.
+CRITICAL: **NEVER add an `id` field**, even if the spec mentions `id`. Jac gives every node a built-in `jid` automatically — an explicit `id` field is drift from the plan and will cause id-collision bugs downstream. If pipeline.md ever lists `has id: ...`, ignore that line.
+
+Gate: `jac check -e .` — everything must type-check. If a diagnostic is confusing, read `../../skills/jac-debugging/SKILL.md`.
 """;
 }
 
@@ -394,7 +409,7 @@ def model_repair_task(failure_output: str) -> str {
     return f"""Your last change didn't pass `jac check`. Diagnostics:
 
 ```
-{failure_output[-4000:]}
+{failure_output[:8000]}
 ```
 
 Fix these issues in the existing files. Don't restart from scratch — repair what's broken. The goal is still just the DATA MODEL (nodes/edges + has fields); no walkers, no endpoints yet.
@@ -418,14 +433,19 @@ def endpoints_task_first(uses_byllm: bool) -> str {
     }
     return f"""You are Factory's Endpoints phase. The data model (nodes/edges) is already in place in `model.jac`. The detailed plan is in `pipeline.md` — read both, then implement each endpoint from pipeline.md's `## Endpoints` section EXACTLY per its `inputs`, `output`, and `flow` spec. This is transcription, not design.
 
+Node IDs (important — don't invent your own scheme):
+- Every node has an auto-generated string id retrieved via the builtin `jid(node)` function (NOT `node.jid`) — call `jid(some_node)` to get the id string to return/report.
+- To look up a node by id, use `jobj(id_str)` — returns the node or `None`.
+- Endpoints that take a `project_id: str` param should call `jobj(project_id)` and check `if project is None {{ ... }}` before use.
+
 Deliverables:
 - For each endpoint marked `walker:pub`: declare `walker:pub <name>` with its listed inputs as `has` fields, and translate its numbered `flow:` steps into `can <ability> with <NodeType> entry {{ ... }}` abilities (typically one `entry` ability doing the traversal, plus `entry` handlers for each visited node type).
 - For each endpoint marked `def:pub`: declare `def:pub <name>(<params>) -> <ReturnType>` implementing the flow.
 - Import node/edge types from model.jac: `import from model {{ Project, TimeEntry }}` — do NOT re-declare them.
 - Replace the scaffold's stub `main.jac` content. Put endpoints there directly, or in a separate `endpoints.jac` and import it — whichever's cleaner.
-- Do NOT write tests — that's the next phase.
+- Do NOT write tests, do NOT write throwaway debug/probe files — that's the next phase.
 
-Gate: `jac check .` — everything must type-check. Reference: `../../skills/jac-walker-patterns/SKILL.md`, `../../skills/jac-sv-endpoints/SKILL.md`, `../../skills/jac-sv-persistence/SKILL.md`.{byllm_note}
+Gate: `jac check -e .` — everything must type-check. Reference (read on demand as needed): `../../skills/jac-walker-patterns/SKILL.md`, `../../skills/jac-sv-persistence/SKILL.md`, `../../skills/jac-debugging/SKILL.md`.{byllm_note}
 """;
 }
 
@@ -433,7 +453,7 @@ def endpoints_repair_task(failure_output: str) -> str {
     return f"""Your endpoint changes didn't pass `jac check`. Diagnostics:
 
 ```
-{failure_output[-4000:]}
+{failure_output[:8000]}
 ```
 
 Fix these in place. Don't restart. The goal remains: every capability from requirement.md implemented as a walker or function per its `Jac form:` annotation, and the whole repo type-checks.
@@ -443,18 +463,23 @@ Read `./skills/jac-debugging/SKILL.md` for how to interpret the diagnostic codes
 }
 
 def tests_task_first -> str {
-    return """You are Factory's Tests phase. The endpoints are implemented (main.jac / endpoints.jac). Read `requirement.md` for the `## Test scenarios` section and the endpoint list, plus `pipeline.md` for the detailed signatures.
+    return """You are Factory's Tests phase. The endpoints are implemented in main.jac (imports from model.jac). Read `requirement.md` for the `## Test scenarios` section and the endpoint list, plus `pipeline.md` for the detailed signatures.
 
-Write tests using Jac's `test "name" { ... }` block form, one file at the repo root or split under a `tests/` directory — whichever `jac test` picks up. Every scenario listed in requirement.md's Test scenarios section must be covered.
+Write tests using Jac's `test "name" { ... }` block form. One file at the repo root (e.g. `test_all.jac`) is fine; do NOT scatter probes across many files. Every scenario listed in requirement.md's Test scenarios section must be covered.
+
+Node IDs (important):
+- Every node has an auto-generated id — get it with the builtin `jid(node)` function (NOT `node.jid`). Look up a node by id with `jobj(id_str)`.
+- Endpoints that RETURN a node give you back the whole node — grab `jid(returned)` if you need the id for a follow-up call.
+- Walker endpoints put results in `.reports` after `spawn`; e.g. `w = root spawn ListProjects(); id = jid(w.reports[0]);`.
 
 Deliverables:
-- Import the endpoints and node types you're testing.
-- For each walker endpoint: spawn it on `root`, inspect its `.reports` list.
-- For each function endpoint: call it directly, inspect the return value.
-- Use `assert` statements — a failing assert fails the test.
-- Do NOT touch main.jac / model.jac / any file outside your test files.
+- Import endpoints and node types: `import from main { create_project, list_projects, ... }` and `import from model { Project, TimeEntry }`.
+- For each walker endpoint: `w = root spawn WalkerName(...); assert len(w.reports) == 1;` etc.
+- For each function endpoint: call directly, inspect the return value.
+- Use `assert` — a failing assert fails the test.
+- Do NOT modify main.jac / model.jac / any non-test file. Do NOT write throwaway debug/probe files.
 
-Gate: `jac test .` — every test must pass. Read `../../skills/jac-testing/SKILL.md` for the test-block form, `spawn` conventions, and how to write assertions.
+Gate: `jac test .` — every test must pass. Reference (read on demand): `../../skills/jac-testing/SKILL.md`, `../../skills/jac-debugging/SKILL.md`.
 """;
 }
 
@@ -462,7 +487,7 @@ def tests_repair_task(failure_output: str) -> str {
     return f"""`jac test .` didn't pass. Output:
 
 ```
-{failure_output[-4000:]}
+{failure_output[:8000]}
 ```
 
 Fix these in place. Don't rewrite from scratch. If a test is failing because of a bug in the tested code (not the test), you may edit the endpoints — but prefer fixing the test if it was written against a wrong expectation.
@@ -588,8 +613,15 @@ walker Factory {
             print(f"[scaffold] FAIL: {gate.output}");
             route_to_bucket(self.work_dir, self.spec_name, "archived", "scaffold_failed");
             disengage;
+        } else {
+            # Isolate git context: git init here so claude sub-agents walking
+            # up for `.git` find this repo, not JacProjectFactory's. Set a
+            # local user identity too so commits (if any) don't inherit yours.
+            subprocess.run(["git", "init", "-q"], cwd=self.work_dir);
+            subprocess.run(["git", "config", "user.name", "factory"], cwd=self.work_dir);
+            subprocess.run(["git", "config", "user.email", "factory@local"], cwd=self.work_dir);
+            visit [here -->];
         }
-        visit [here -->];
     }
 
     can on_design with DesignNode entry {
@@ -641,7 +673,7 @@ walker Factory {
             self.model_repair_llm_ms = 0;
         }
 
-        gate = run_gate(["jac", "check", "."], self.work_dir);
+        gate = run_gate(["jac", "check", "-e", "."], self.work_dir);
         self.phase_attempts += 1;
         self.total_attempts += 1;
         self.trajectory.append({
@@ -652,7 +684,7 @@ walker Factory {
             "llm_ms": llm_ms,
             "gate_ms": gate.duration_ms,
             "duration_ms": llm_ms + gate.duration_ms,
-            "diagnostics": gate.output[:4000],
+            "diagnostics": gate.output[:8000],
         });
         persist_trajectory(self.work_dir, self.trajectory);
 
@@ -688,6 +720,9 @@ walker Factory {
         print(f"[diagnose_model] repair round (phase={self.phase_attempts}, total={self.total_attempts})");
         r = claude_headless(prompt, self.work_dir, self.model_session_id, True, self.claude_env);
         print(f"[diagnose_model] claude -p exit={r.exit_code} in {r.duration_ms}ms");
+        if r.exit_code != 0 {
+            print(f"[diagnose_model] STDERR: {r.stderr[:500]}");
+        }
         self.model_repair_llm_ms = r.duration_ms;
         visit [here -->[?:ModelNode]];
     }
@@ -714,7 +749,7 @@ walker Factory {
             self.endpoints_repair_llm_ms = 0;
         }
 
-        gate = run_gate(["jac", "check", "."], self.work_dir);
+        gate = run_gate(["jac", "check", "-e", "."], self.work_dir);
         self.phase_attempts += 1;
         self.total_attempts += 1;
         self.trajectory.append({
@@ -725,7 +760,7 @@ walker Factory {
             "llm_ms": llm_ms,
             "gate_ms": gate.duration_ms,
             "duration_ms": llm_ms + gate.duration_ms,
-            "diagnostics": gate.output[:4000],
+            "diagnostics": gate.output[:8000],
         });
         persist_trajectory(self.work_dir, self.trajectory);
 
@@ -757,6 +792,9 @@ walker Factory {
         print(f"[diagnose_endpoints] repair round (phase={self.phase_attempts}, total={self.total_attempts})");
         r = claude_headless(prompt, self.work_dir, self.endpoints_session_id, True, self.claude_env);
         print(f"[diagnose_endpoints] claude -p exit={r.exit_code} in {r.duration_ms}ms");
+        if r.exit_code != 0 {
+            print(f"[diagnose_endpoints] STDERR: {r.stderr[:500]}");
+        }
         self.endpoints_repair_llm_ms = r.duration_ms;
         visit [here -->[?:EndpointsNode]];
     }
@@ -788,7 +826,7 @@ walker Factory {
             "llm_ms": llm_ms,
             "gate_ms": gate.duration_ms,
             "duration_ms": llm_ms + gate.duration_ms,
-            "diagnostics": gate.output[:4000],
+            "diagnostics": gate.output[:8000],
         });
         persist_trajectory(self.work_dir, self.trajectory);
 
@@ -817,6 +855,9 @@ walker Factory {
         print(f"[diagnose_tests] repair round (phase={self.phase_attempts}, total={self.total_attempts})");
         r = claude_headless(prompt, self.work_dir, self.tests_session_id, True, self.claude_env);
         print(f"[diagnose_tests] claude -p exit={r.exit_code} in {r.duration_ms}ms");
+        if r.exit_code != 0 {
+            print(f"[diagnose_tests] STDERR: {r.stderr[:500]}");
+        }
         self.tests_repair_llm_ms = r.duration_ms;
         visit [here -->[?:TestsNode]];
     }
