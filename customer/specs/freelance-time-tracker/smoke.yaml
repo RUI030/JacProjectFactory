@@ -5,6 +5,7 @@ scenarios:
         input:
           name: "API Refactor"
           client_name: "Acme Corp"
+        capture: project_id
         assertions:
           - expect_success: true
       - endpoint: list_projects
@@ -14,20 +15,41 @@ scenarios:
           - expect_output_length: 1
   - name: Start and stop timer
     steps:
+      - endpoint: create_project
+        input:
+          name: "Website Redesign"
+          client_name: "Beta LLC"
+        capture: project_id
+        assertions:
+          - expect_success: true
       - endpoint: start_timer
         input:
-          project_id: "proj-1"
+          project_id: "${project_id}"
+        capture: entry_id
         assertions:
           - expect_success: true
       - endpoint: stop_timer
         input:
-          entry_id: "entry-1"
+          entry_id: "${entry_id}"
         assertions:
           - expect_success: true
   - name: Mark entry as paid
     steps:
+      - endpoint: create_project
+        input:
+          name: "Bug Fix Sprint"
+          client_name: "Gamma Inc"
+        capture: project_id
+        assertions:
+          - expect_success: true
+      - endpoint: start_timer
+        input:
+          project_id: "${project_id}"
+        capture: entry_id
+        assertions:
+          - expect_success: true
       - endpoint: mark_as_paid
         input:
-          entry_id: "entry-1"
+          entry_id: "${entry_id}"
         assertions:
           - expect_success: true

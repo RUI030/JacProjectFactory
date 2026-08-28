@@ -1,0 +1,8 @@
+{
+  "spec_name": "grad-student-paper-library",
+  "bucket": "repaircenter",
+  "reason": "manual_kill_mid_diagnose_smoke_for_other_experiment",
+  "model": "ornith-ai/Ornith-1.5-9B-GGUF",
+  "model_tag": "Ornith",
+  "note": "scaffold+design+model+endpoints+tests all PASS on attempt 1; smoke attempt 1 failed; killed during DiagnoseSmoke attempt 1"
+}

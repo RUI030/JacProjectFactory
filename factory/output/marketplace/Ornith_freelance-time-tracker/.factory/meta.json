@@ -1,0 +1,7 @@
+{
+  "spec_name": "freelance-time-tracker",
+  "bucket": "marketplace",
+  "reason": "manual_harvest_all_gates_passed_but_harvest_crashed_at_pg_wipe",
+  "model": "ornith-ai/Ornith-1.5-9B-GGUF",
+  "model_tag": "Ornith"
+}
